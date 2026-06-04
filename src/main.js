@@ -1,114 +1,174 @@
 const moods = {
+  bad: {
+    label: 'Плохое',
+    shortLabel: 'Плохо',
+    hint: 'Сложный день — красный кристалл',
+    fill: '#ef4444',
+    stroke: '#9f1239',
+    dark: '#7f1d1d',
+    light: '#fecaca',
+    glow: 'rgba(239, 68, 68, 0.42)',
+  },
   positive: {
     label: 'Положительное',
-    hint: 'Зелёный кристалл для бодрого дня',
-    fill: '#28d76d',
-    stroke: '#0f9d49',
-    glow: 'rgba(40, 215, 109, 0.45)',
+    shortLabel: 'Хорошо',
+    hint: 'Тёплый настрой — зелёный кристалл',
+    fill: '#22c55e',
+    stroke: '#15803d',
+    dark: '#14532d',
+    light: '#bbf7d0',
+    glow: 'rgba(34, 197, 94, 0.44)',
   },
   neutral: {
     label: 'Нейтральное',
-    hint: 'Оранжевый кристалл для спокойного настроя',
-    fill: '#ff9f1a',
-    stroke: '#d67000',
-    glow: 'rgba(255, 159, 26, 0.42)',
+    shortLabel: 'Норма',
+    hint: 'Ровный день — жёлтый кристалл',
+    fill: '#facc15',
+    stroke: '#ca8a04',
+    dark: '#854d0e',
+    light: '#fef9c3',
+    glow: 'rgba(250, 204, 21, 0.44)',
   },
-  bad: {
-    label: 'Плохое',
-    hint: 'Красный кристалл, когда день не задался',
-    fill: '#ff4d4d',
-    stroke: '#c52828',
-    glow: 'rgba(255, 77, 77, 0.45)',
-  },
-  delightful: {
-    label: 'Восхитительное',
-    hint: 'Серебристый кристалл для особенного дня',
+  excellent: {
+    label: 'Превосходное',
+    shortLabel: 'Вау',
+    hint: 'Лучший день — серебряный кристалл',
     fill: '#d9e2ec',
-    stroke: '#8ea0ad',
-    glow: 'rgba(217, 226, 236, 0.6)',
+    stroke: '#94a3b8',
+    dark: '#64748b',
+    light: '#ffffff',
+    glow: 'rgba(226, 232, 240, 0.62)',
   },
 };
 
-let currentMoodKey = 'positive';
-let imageUrl = '';
+const monthFormatter = new Intl.DateTimeFormat('ru-RU', { month: 'long', year: 'numeric' });
+const weekdayFormatter = new Intl.DateTimeFormat('ru-RU', { weekday: 'short' });
+const today = new Date();
+const visibleYear = today.getFullYear();
+const visibleMonth = today.getMonth();
+const todayDateKey = formatDateKey(today);
+const storageKey = `mood-tracker:${visibleYear}-${String(visibleMonth + 1).padStart(2, '0')}`;
+
+let currentMoodKey = localStorage.getItem('currentMoodKey') || 'positive';
+let imageUrl = localStorage.getItem('uploadedPhoto') || '';
+let monthMoods = readMonthMoods();
 
 const app = document.querySelector('#root');
 
 app.innerHTML = `
   <main class="app-shell">
-    <section class="hero">
-      <div>
-        <p class="eyebrow">MVP · mood overlay</p>
-        <h1>Добавьте кристалл настроения к фотографии</h1>
+    <section class="hero-card">
+      <div class="hero-copy">
+        <p class="eyebrow">Daily mood tracker</p>
+        <h1>Трекер настроения с кристаллом дня</h1>
         <p class="intro">
-          Загрузите портрет, выберите настроение дня — и приложение поставит над человеком кристалл в стиле life-sim.
+          Загрузи фотографию, отмечай настроение каждый день и смотри, как календарь месяца заполняется цветом.
+          Кристалл над фото меняется вместе с выбранным настроением.
         </p>
       </div>
-      ${createPlumbobMarkup('hero-plumbob', true)}
+      <div class="hero-stats" aria-label="Краткая статистика месяца">
+        <span class="stat-value" id="filled-days">0</span>
+        <span class="stat-label">дней отмечено</span>
+      </div>
     </section>
 
-    <section class="workspace" aria-label="Редактор фотографии">
-      <aside class="panel controls">
-        <label class="upload-card">
-          <span class="upload-title">Фото</span>
-          <span class="upload-name" id="upload-name">Выберите фото</span>
-          <input id="photo-input" type="file" accept="image/*" />
-        </label>
-
-        <div class="mood-list" id="mood-list" role="radiogroup" aria-label="Настроение дня"></div>
-
-        <button class="download" id="download-button" type="button" disabled>Скачать PNG</button>
-      </aside>
-
-      <section class="panel preview-card">
-        <div class="preview-stage" id="preview-stage">
-          <div class="empty-state">
-            ${createPlumbobMarkup('preview-plumbob')}
-            <p>Здесь появится ваша фотография с кристаллом.</p>
+    <section class="dashboard" aria-label="Ежедневный трекер настроения">
+      <section class="photo-card panel" aria-label="Фотография с кристаллом настроения">
+        <div class="section-heading">
+          <div>
+            <p class="kicker">Фото дня</p>
+            <h2>Кристалл над головой</h2>
           </div>
+          <label class="change-photo">
+            <span id="photo-action-label">${imageUrl ? 'Поменять фото' : 'Загрузить фото'}</span>
+            <input id="photo-input" type="file" accept="image/*" />
+          </label>
         </div>
-        <p class="caption">Текущее настроение: <strong id="caption-mood">${moods[currentMoodKey].label}</strong></p>
+
+        <div class="portrait-stage" id="portrait-stage">
+          ${renderPhotoStage()}
+        </div>
+
+        <div class="mood-picker" id="mood-picker" role="radiogroup" aria-label="Выбор настроения на сегодня"></div>
       </section>
+
+      <aside class="calendar-card panel" aria-label="Календарь текущего месяца">
+        <div class="section-heading calendar-heading">
+          <div>
+            <p class="kicker">Текущий месяц</p>
+            <h2 id="month-title">${capitalize(monthFormatter.format(today))}</h2>
+          </div>
+          <div class="today-pill">Сегодня · ${today.getDate()}</div>
+        </div>
+
+        <div class="calendar-weekdays" id="calendar-weekdays"></div>
+        <div class="calendar-grid" id="calendar-grid"></div>
+
+        <div class="legend" aria-label="Легенда настроений">
+          ${Object.entries(moods)
+            .map(([key, mood]) => `<span><i style="background:${mood.fill}"></i>${mood.shortLabel}</span>`)
+            .join('')}
+        </div>
+      </aside>
     </section>
   </main>
 `;
 
-const moodList = document.querySelector('#mood-list');
-const uploadName = document.querySelector('#upload-name');
 const photoInput = document.querySelector('#photo-input');
-const previewStage = document.querySelector('#preview-stage');
-const downloadButton = document.querySelector('#download-button');
-const captionMood = document.querySelector('#caption-mood');
+const photoActionLabel = document.querySelector('#photo-action-label');
+const portraitStage = document.querySelector('#portrait-stage');
+const moodPicker = document.querySelector('#mood-picker');
+const calendarWeekdays = document.querySelector('#calendar-weekdays');
+const calendarGrid = document.querySelector('#calendar-grid');
+const filledDays = document.querySelector('#filled-days');
 
-renderMoodButtons();
+renderMoodPicker();
+renderCalendar();
 applyMoodStyles();
+updateMonthStats();
 
-photoInput.addEventListener('change', (event) => {
+photoInput.addEventListener('change', async (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
 
-  if (imageUrl) {
-    URL.revokeObjectURL(imageUrl);
-  }
-
-  imageUrl = URL.createObjectURL(file);
-  uploadName.textContent = file.name;
-  downloadButton.disabled = false;
-  renderPreview();
+  imageUrl = await fileToDataUrl(file);
+  localStorage.setItem('uploadedPhoto', imageUrl);
+  photoActionLabel.textContent = 'Поменять фото';
+  portraitStage.innerHTML = renderPhotoStage();
+  applyMoodStyles();
 });
 
-downloadButton.addEventListener('click', downloadResult);
+function renderPhotoStage() {
+  if (!imageUrl) {
+    return `
+      <div class="empty-portrait">
+        ${createPlumbobMarkup()}
+        <div>
+          <strong>Добавь фотографию</strong>
+          <span>Кристалл появится над человеком, а фото можно будет заменить в любой момент.</span>
+        </div>
+      </div>
+    `;
+  }
 
-function renderMoodButtons() {
-  moodList.innerHTML = Object.entries(moods)
+  return `
+    <div class="portrait-frame">
+      ${createPlumbobMarkup()}
+      <img id="preview-image" src="${imageUrl}" alt="Загруженная фотография для трекера настроения" />
+    </div>
+  `;
+}
+
+function renderMoodPicker() {
+  moodPicker.innerHTML = Object.entries(moods)
     .map(([key, mood]) => `
       <button
+        class="${key === currentMoodKey ? 'mood-option active' : 'mood-option'}"
         type="button"
-        class="${key === currentMoodKey ? 'mood-button active' : 'mood-button'}"
         data-mood="${key}"
         aria-pressed="${key === currentMoodKey}"
       >
-        <span class="swatch" style="background: ${mood.fill}"></span>
+        <span class="mood-orb" style="--orb:${mood.fill}; --orb-glow:${mood.glow}"></span>
         <span>
           <strong>${mood.label}</strong>
           <small>${mood.hint}</small>
@@ -117,107 +177,138 @@ function renderMoodButtons() {
     `)
     .join('');
 
-  moodList.querySelectorAll('.mood-button').forEach((button) => {
+  moodPicker.querySelectorAll('.mood-option').forEach((button) => {
     button.addEventListener('click', () => {
       currentMoodKey = button.dataset.mood;
-      renderMoodButtons();
+      localStorage.setItem('currentMoodKey', currentMoodKey);
+      monthMoods[todayDateKey] = currentMoodKey;
+      saveMonthMoods();
+      renderMoodPicker();
+      renderCalendar();
       applyMoodStyles();
-      captionMood.textContent = moods[currentMoodKey].label;
+      updateMonthStats();
     });
   });
 }
 
-function renderPreview() {
-  previewStage.innerHTML = `
-    <div class="photo-frame">
-      ${createPlumbobMarkup('preview-plumbob')}
-      <img id="preview-image" src="${imageUrl}" alt="Загруженная фотография" />
-    </div>
-  `;
-  applyMoodStyles();
+function renderCalendar() {
+  calendarWeekdays.innerHTML = getWeekdays().map((day) => `<span>${day}</span>`).join('');
+
+  const firstDay = new Date(visibleYear, visibleMonth, 1);
+  const daysInMonth = new Date(visibleYear, visibleMonth + 1, 0).getDate();
+  const offset = normalizeWeekday(firstDay.getDay());
+  const cells = [];
+
+  for (let index = 0; index < offset; index += 1) {
+    cells.push('<div class="day-cell muted" aria-hidden="true"></div>');
+  }
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const date = new Date(visibleYear, visibleMonth, day);
+    const dateKey = formatDateKey(date);
+    const moodKey = monthMoods[dateKey];
+    const mood = moods[moodKey];
+    const isToday = dateKey === todayDateKey;
+    const style = mood ? `style="--day-color:${mood.fill}; --day-glow:${mood.glow}"` : '';
+    const title = mood ? `${day}: ${mood.label}` : `${day}: настроение не выбрано`;
+
+    cells.push(`
+      <button
+        class="day-cell ${mood ? 'filled' : ''} ${isToday ? 'today' : ''}"
+        type="button"
+        data-date="${dateKey}"
+        ${style}
+        title="${title}"
+        aria-label="${title}"
+      >
+        <span>${day}</span>
+      </button>
+    `);
+  }
+
+  calendarGrid.innerHTML = cells.join('');
+
+  calendarGrid.querySelectorAll('.day-cell[data-date]').forEach((button) => {
+    button.addEventListener('click', () => {
+      monthMoods[button.dataset.date] = currentMoodKey;
+      saveMonthMoods();
+      renderCalendar();
+      updateMonthStats();
+    });
+  });
 }
 
 function applyMoodStyles() {
   const mood = moods[currentMoodKey];
-  document.querySelectorAll('.plumbob').forEach((plumbob) => {
-    plumbob.style.setProperty('--fill', mood.fill);
-    plumbob.style.setProperty('--stroke', mood.stroke);
-    plumbob.style.setProperty('--glow', mood.glow);
-  });
+  document.documentElement.style.setProperty('--active-mood', mood.fill);
+  document.documentElement.style.setProperty('--active-mood-light', mood.light);
+  document.documentElement.style.setProperty('--active-mood-dark', mood.dark);
+  document.documentElement.style.setProperty('--active-mood-stroke', mood.stroke);
+  document.documentElement.style.setProperty('--active-mood-glow', mood.glow);
 }
 
-async function downloadResult() {
-  const image = document.querySelector('#preview-image');
-  if (!image || !imageUrl) return;
-
-  if (!image.complete) {
-    await image.decode();
-  }
-
-  const canvas = document.createElement('canvas');
-  const width = image.naturalWidth;
-  const height = image.naturalHeight;
-  canvas.width = width;
-  canvas.height = height;
-
-  const context = canvas.getContext('2d');
-  context.drawImage(image, 0, 0, width, height);
-  drawPlumbob(context, width, height, moods[currentMoodKey]);
-
-  const link = document.createElement('a');
-  link.download = `mood-crystal-${currentMoodKey}.png`;
-  link.href = canvas.toDataURL('image/png');
-  link.click();
+function updateMonthStats() {
+  filledDays.textContent = Object.keys(monthMoods).length;
 }
 
-function createPlumbobMarkup(id, compact = false) {
+function createPlumbobMarkup() {
   return `
-    <div id="${id}" class="${compact ? 'plumbob compact' : 'plumbob'}" aria-hidden="true">
-      <div class="diamond top"></div>
-      <div class="diamond bottom"></div>
-      <div class="shine"></div>
+    <div class="plumbob" aria-hidden="true">
+      <div class="plumbob-shadow"></div>
+      <div class="plumbob-top">
+        <span class="facet facet-left"></span>
+        <span class="facet facet-center"></span>
+        <span class="facet facet-right"></span>
+      </div>
+      <div class="plumbob-bottom">
+        <span class="facet facet-left"></span>
+        <span class="facet facet-center"></span>
+        <span class="facet facet-right"></span>
+      </div>
+      <span class="plumbob-spark spark-one"></span>
+      <span class="plumbob-spark spark-two"></span>
     </div>
   `;
 }
 
-function drawPlumbob(context, canvasWidth, canvasHeight, mood) {
-  const centerX = canvasWidth / 2;
-  const topY = Math.max(canvasHeight * 0.04, 24);
-  const crystalHeight = Math.min(canvasHeight * 0.26, canvasWidth * 0.28, 220);
-  const crystalWidth = crystalHeight * 0.42;
-  const midY = topY + crystalHeight * 0.48;
-  const bottomY = topY + crystalHeight;
+function readMonthMoods() {
+  try {
+    return JSON.parse(localStorage.getItem(storageKey)) || {};
+  } catch {
+    return {};
+  }
+}
 
-  context.save();
-  context.shadowColor = mood.glow;
-  context.shadowBlur = crystalHeight * 0.18;
-  context.lineWidth = Math.max(4, crystalHeight * 0.035);
-  context.strokeStyle = mood.stroke;
-  context.fillStyle = mood.fill;
+function saveMonthMoods() {
+  localStorage.setItem(storageKey, JSON.stringify(monthMoods));
+}
 
-  context.beginPath();
-  context.moveTo(centerX, topY);
-  context.lineTo(centerX + crystalWidth, midY);
-  context.lineTo(centerX, bottomY);
-  context.lineTo(centerX - crystalWidth, midY);
-  context.closePath();
-  context.fill();
-  context.stroke();
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('load', () => resolve(reader.result));
+    reader.addEventListener('error', reject);
+    reader.readAsDataURL(file);
+  });
+}
 
-  const gradient = context.createLinearGradient(centerX - crystalWidth, topY, centerX + crystalWidth, bottomY);
-  gradient.addColorStop(0, 'rgba(255,255,255,0.8)');
-  gradient.addColorStop(0.32, 'rgba(255,255,255,0.22)');
-  gradient.addColorStop(1, 'rgba(0,0,0,0.18)');
-  context.fillStyle = gradient;
-  context.fill();
+function getWeekdays() {
+  const baseMonday = new Date(2026, 5, 1);
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(baseMonday);
+    date.setDate(baseMonday.getDate() + index);
+    return capitalize(weekdayFormatter.format(date).replace('.', ''));
+  });
+}
 
-  context.beginPath();
-  context.moveTo(centerX, topY + crystalHeight * 0.14);
-  context.lineTo(centerX + crystalWidth * 0.36, midY);
-  context.lineTo(centerX, bottomY - crystalHeight * 0.18);
-  context.lineTo(centerX - crystalWidth * 0.12, midY);
-  context.closePath();
-  context.fillStyle = 'rgba(255,255,255,0.22)';
-  context.fill();
-  context.restore();
+function normalizeWeekday(day) {
+  return day === 0 ? 6 : day - 1;
+}
+
+function formatDateKey(date) {
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+}
+
+function capitalize(value) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
